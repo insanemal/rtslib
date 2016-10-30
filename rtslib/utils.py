@@ -371,6 +371,42 @@ def list_scsi_hbas():
         for device in os.listdir("/sys/bus/scsi/devices")
         if re.match("[0-9:]+", device)]))
 
+def list_scsi_paths():
+    '''
+    This function gets all the SCSI paths from 
+    /sys/class/scsi_[changer,disk,tape]. It returns a dict object with
+    the /dev/s* devices and the path's for use in convert_scsi_hctl_to_path
+    
+    >>> import rtslib.utils as utils
+    >>> utils.list_scsi_paths()
+    ('/dev/sda':'/sys/class/scsi_disk/sda',\
+     '/dev/sch0':'/sys/class/scsi_changer/sch0')
+
+    @return: A dict of with the index being /dev/s* entries as string and
+    the data being the /sys/class/*/s* path for the device
+    '''
+    dev_dict = {}
+    scsi_types = ['/sys/block',
+                  '/sys/class/scsi_changer',
+                  '/sys/class/scsi_tape']
+
+    for scsi_type in scsi_types:
+        if os.path.exists(scsi_type):
+            for dev in os.listdir(scsi_type):
+                #Dirty hack for getting the base tape device
+                #Probably a better way of doing this but this works
+                if scsi_type == '/sys/class/scsi_tape':
+                    if not(dev[0] == 'n'):
+                       last = len(dev) - 1
+                       if (not(dev[last] == 'a') and
+                           not(dev[last] == 'l') and
+                           not(dev[last] == 'm') ):
+                           dev_dict[dev] = scsi_type + '/' + dev
+                else:
+                     dev_dict[dev] = scsi_type + '/' + dev
+
+    return dev_dict
+
 def convert_scsi_path_to_hctl(path):
     '''
     This function returns the SCSI ID in H:C:T:L form for the block
@@ -397,9 +433,10 @@ def convert_scsi_path_to_hctl(path):
     match is found.
     '''
     devname = os.path.basename(os.path.realpath(path))
+    devs = list_scsi_paths()
     try:
-        hctl = os.listdir("/sys/block/%s/device/scsi_device"
-                          % devname)[0].split(':')
+        hctl = os.listdir("%s/device/scsi_device"
+                          % devs[devname] )[0].split(':')
     except:
         return None
     
@@ -437,7 +474,7 @@ def convert_scsi_hctl_to_path(host, controller, target, lun):
         raise RTSLibError(
             "The host, controller, target and lun parameter must be integers.")
 
-    for devname in os.listdir("/sys/block"):
+    for devname in list_scsi_paths():
         path = "/dev/%s" % devname
         hctl = [host, controller, target, lun]
         if convert_scsi_path_to_hctl(path) == hctl:
